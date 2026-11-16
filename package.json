@@ -1,0 +1,23 @@
+{
+  "name": "vitrola-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Wrapper Android Capacitor para o player Vitrola",
+  "packageManager": "npm@10.9.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "android:assets": "capacitor-assets generate --android --iconBackgroundColor '#2b7bff' --iconBackgroundColorDark '#0a0b0d' --splashBackgroundColor '#f2f3f5' --splashBackgroundColorDark '#0a0b0d'",
+    "android:sync": "npm run android:assets && cap sync android",
+    "android:open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/core": "8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "4.0.0",
+    "@capacitor/cli": "8.6.2"
+  }
+}

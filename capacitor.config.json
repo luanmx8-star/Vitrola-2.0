@@ -1,0 +1,8 @@
+{
+  "appId": "com.vitrola.player",
+  "appName": "Vitrola",
+  "webDir": "public",
+  "android": {
+    "backgroundColor": "#f2f3f5"
+  }
+}

@@ -1,0 +1,19 @@
+# Node.js
+node_modules/
+
+# Android / Gradle build outputs
+.gradle/
+**/build/
+android/local.properties
+android/.gradle/
+
+# Local signing material (never commit private keys or passwords)
+*.jks
+*.keystore
+keystore.properties
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
