@@ -1032,7 +1032,7 @@ body.dropzone::after { content: ""; position: fixed; inset: 10px; border: 2px da
     var e = el("div", "empty");
     var s = el("div"); s.appendChild(el("strong", null, "Sua biblioteca está vazia")); s.appendChild(document.createTextNode("Adicione músicas do seu aparelho. Aceita MP3, FLAC, WAV, M4A, OGG, OPUS e outros. Capas e dados da faixa são lidos automaticamente."));
     var b = el("button", "pill fill", "Adicionar músicas"); b.type = "button"; b.addEventListener("click", function () { $("file").click(); });
-    var b2 = el("button", "pill", "Adicionar pasta"); b2.type = "button"; b2.addEventListener("click", function () { $("dir").click(); });
+    var b2 = el("button", "pill", "Adicionar pasta"); b2.type = "button"; b2.addEventListener("click", function () { chooseFolder(); });
     e.appendChild(s); e.appendChild(b); e.appendChild(b2); main.appendChild(e);
   }
   function emptyNote(main, title, sub) {
@@ -1165,7 +1165,7 @@ body.dropzone::after { content: ""; position: fixed; inset: 10px; border: 2px da
   function viewFolders(main) {
     var add = el("div", "pills"); var nb = el("button", "pill fill"); nb.type = "button";
     nb.appendChild(ico("add")); nb.appendChild(el("span", null, "Adicionar pasta"));
-    nb.addEventListener("click", function () { $("dir").click(); }); add.appendChild(nb); main.appendChild(add);
+    nb.addEventListener("click", function () { chooseFolder(); }); add.appendChild(nb); main.appendChild(add);
     if (!lib.length) { emptyNote(main, "Nenhuma pasta ainda", "Toque em \"Adicionar pasta\" e escolha uma pasta com suas músicas. As subpastas também entram."); return; }
     var q = query.toLowerCase();
     var gs = group(folderKey).filter(function (g) { return !q || g.key.toLowerCase().indexOf(q) >= 0 || g.tracks.some(match); });
@@ -1391,10 +1391,11 @@ body.dropzone::after { content: ""; position: fixed; inset: 10px; border: 2px da
     var i = p.lastIndexOf("/");
     return i > 0 ? p.slice(0, i) : "";
   }
-  function addFiles(fileList) {
+  function addFiles(fileList, options) {
+    options = options || {};
     var files = Array.prototype.slice.call(fileList).filter(function (f) { return f.type.indexOf("audio") === 0 || /\.(mp3|m4a|mp4|aac|wav|wave|aif|aiff|ogg|oga|opus|flac|alac|wma|weba)$/i.test(f.name); });
-    if (!files.length) { toast("Nenhum arquivo de áudio encontrado."); return; }
-    toast("Importando " + plural(files.length, "arquivo", "arquivos") + "…");
+    if (!files.length) { if (!options.silent) toast("Nenhum arquivo de áudio encontrado."); return Promise.resolve(0); }
+    if (!options.silent) toast("Importando " + plural(files.length, "arquivo", "arquivos") + "…");
     var saved = true, added = 0, base = Date.now();
     var chain = Promise.resolve();
     files.forEach(function (f, i) {
@@ -1402,18 +1403,64 @@ body.dropzone::after { content: ""; position: fixed; inset: 10px; border: 2px da
         return Promise.all([readMeta(f), getDur(f)]).then(function (r) {
           var m = r[0], rec = { title: m.title, artist: m.artist, album: m.album, blob: f, art: m.art, dur: r[1], added: base + i, codec: m.codec || "", rate: m.rate || 0, bits: m.bits || 0, folder: folderOf(f) };
           return req("tracks", "readwrite", function (s) { return s.add(rec); }).then(function (id) { rec.id = id; }, function () { rec.id = "tmp" + Math.random().toString(36).slice(2); saved = false; })
-            .then(function () { lib.push(mk(rec)); added++; if (added % 15 === 0) render(false, true); });
+            .then(function () { lib.push(mk(rec)); added++; if (!options.deferRender && added % 15 === 0) render(false, true); });
         });
       });
     });
-    chain.then(function () { render(); toast(plural(added, "música adicionada", "músicas adicionadas") + (saved ? "" : " (sem salvar no navegador)")); });
+    return chain.then(function () {
+      if (!options.deferRender) render();
+      if (!options.silent) toast(plural(added, "música adicionada", "músicas adicionadas") + (saved ? "" : " (sem salvar no navegador)"));
+      return added;
+    });
+  }
+  function chooseFolder() {
+    var cap = window.Capacitor;
+    if (cap && cap.isNativePlatform && cap.isNativePlatform() && cap.getPlatform() === "android" && cap.nativePromise && cap.convertFileSrc) {
+      importAndroidFolder();
+    } else {
+      $("dir").click();
+    }
+  }
+  async function importAndroidFolder() {
+    var cap = window.Capacitor, selection;
+    try {
+      toast("Escolha uma pasta com músicas…");
+      selection = await cap.nativePromise("FolderPicker", "pickFolder", {});
+      if (!selection || selection.cancelled) return;
+      var entries = selection.files || [];
+      if (!entries.length) { toast("Nenhum arquivo de áudio encontrado nessa pasta."); return; }
+      var added = 0, failed = 0;
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        try {
+          var response = await fetch(cap.convertFileSrc(entry.path));
+          if (!response.ok) throw new Error("Não foi possível abrir " + entry.name);
+          var blob = await response.blob();
+          var file = new File([blob], entry.name, { type: entry.mimeType || blob.type || "application/octet-stream" });
+          Object.defineProperty(file, "webkitRelativePath", { value: entry.relativePath || entry.name });
+          added += await addFiles([file], { silent: true, deferRender: true });
+        } catch (error) {
+          failed++;
+          console.warn("Falha ao importar arquivo de áudio", entry.name, error);
+        }
+        if ((i + 1) % 5 === 0 || i + 1 === entries.length) toast("Importando " + (i + 1) + " de " + entries.length + " músicas…");
+      }
+      render();
+      var message = added ? plural(added, "música adicionada", "músicas adicionadas") : "Nenhuma música pôde ser importada.";
+      if (selection.truncated) message += " Limite de 5.000 arquivos atingido.";
+      if (failed) message += " " + failed + " arquivo(s) não puderam ser lidos.";
+      toast(message);
+    } catch (error) {
+      console.error("Falha ao selecionar pasta", error);
+      toast("Não foi possível selecionar essa pasta. Tente novamente.");
+    }
   }
 
   // ---- wiring ----
   $("addBtn").addEventListener("click", function () {
     openSheet("Adicionar à biblioteca", function (b) {
       item(b, "Adicionar músicas", function () { closeSheet(); $("file").click(); });
-      item(b, "Adicionar pasta", function () { closeSheet(); $("dir").click(); });
+      item(b, "Adicionar pasta", function () { closeSheet(); chooseFolder(); });
     });
   });
   $("dir").addEventListener("change", function (e) { addFiles(e.target.files); e.target.value = ""; });
